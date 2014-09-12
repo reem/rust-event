@@ -1,0 +1,19 @@
+[package]
+
+name = "lithium"
+version = "0.0.1"
+authors = ["Jonathan Reem <jonathan.reem@gmail.com>"]
+
+[lib]
+
+name = "lithium"
+path = "src/lib.rs"
+
+[dependencies.typemap]
+
+git = "https://github.com/reem/rust-typemap.git"
+
+[dependencies.unsafe-any]
+
+git = "https://github.com/reem/rust-unsafe-any.git"
+
