@@ -5,6 +5,17 @@
 
 //! Crate comment goes here
 
+extern crate typemap;
+extern crate "unsafe-any" as uany;
+
+use std::collections::{RingBuf, Deque};
+use std::sync::{Arc, Mutex, RWLock};
+use std::any::Any;
+use std::intrinsics::TypeId;
+
+use typemap::{TypeMap, Assoc};
+use uany::UncheckedAnyDowncast;
+
 local_data_key!(LocalEventQueue: Arc<EventQueue>)
 
 macro_rules! queue(
