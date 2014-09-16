@@ -54,11 +54,12 @@ use std::collections::{RingBuf, Deque};
 use std::sync::{Arc, Mutex, RWLock};
 use std::any::Any;
 use std::intrinsics::TypeId;
+use std::mem;
 
 use rustrt::local_data::Ref;
 
 use typemap::{TypeMap, Assoc};
-use uany::UncheckedAnyDowncast;
+use uany::{UncheckedAnyDowncast, UncheckedBoxAnyDowncast};
 
 local_data_key!(LocalEventQueue: Arc<EventQueue>)
 
@@ -163,7 +164,7 @@ impl EventQueue {
                 None => return
             // Downcast this handler to the fake type, which takes an opaque pointer
             // instead of the correct Box<Event<X>> because we cannot name X.
-            }.downcast_ref_unchecked::<&Fn<(&(),), ()>>()
+            }.downcast_ref_unchecked::<&Fn<(*mut (),), ()>>()
         };
 
         // Get the data as an opaque pointer. This is highly, highly unsafe but is fine
@@ -172,16 +173,15 @@ impl EventQueue {
         //
         // This is necessary because we cannot name the real type behind this pointer here,
         // as that information was erased when we turned the Event into a Box<Any>.
-        let data: &() = unsafe { event.downcast_ref_unchecked() };
+        let data = unsafe { mem::transmute::<Box<()>, *mut ()>(event.downcast_unchecked()) };
 
-        // Call the handler with an opaque pointer to the data. Since &T and Box<T> have
-        // the same representation and &T and &() are also the same, the Handler's code
-        // can actually treat the data as the type it expects, and all is good.
+        // Call the handler with an opaque pointer to the data. Since Box<T> and *mut ()
+        // have the same representation the Handler's code can actually treat the data as
+        // the type it expects, and all is good.
+        //
+        // Additionally, since on our end the data is *mut (), we do not run a destructor
+        // and the Handler is free to (and will) drop the data.
         handler.call((data,));
-
-        // This memory was already freed at exit from Handler, since the Handler thinks it received
-        // a Box<T>.
-        mem::forget(event);
     }
 
     fn on<K: Assoc<X>, X: Send>(&self, handler: Handler<X>) {
