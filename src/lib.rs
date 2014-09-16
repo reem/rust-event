@@ -1,6 +1,6 @@
 #![feature(macro_rules)]
 #![license = "MIT"]
-//#![deny(missing_doc)]
+#![deny(missing_doc)]
 #![deny(warnings)]
 
 //! A multi-threaded Event-Loop for Rust.
@@ -62,32 +62,46 @@ use uany::UncheckedAnyDowncast;
 
 local_data_key!(LocalEventQueue: Arc<EventQueue>)
 
+/// Get an immutable reference to the EventQueue stored in TLS.
+///
+/// ## Failure
+///
+/// Fails if called from a task which does not have an EventQueue in
+/// TLS.
+///
+/// Tasks with an EventQueue can be created using event's custom `spawn`.
 pub fn queue() -> Ref<Arc<EventQueue>> {
     LocalEventQueue.get().expect("an Event Queue to be in TLS")
 }
 
+/// An Event containing arbitrary data.
 pub struct Event<T: Send>(T);
 
 impl<T: Send> Event<T> {
+    /// Construct a new Event.
     pub fn new(val: T) -> Event<T> {
         Event(val)
     }
 
+    /// Trigger this a named event with this Event as the associated data.
     pub fn trigger<K: Assoc<T>>(self) {
         queue().queue::<K, T>(self)
     }
 }
 
+/// Register a Handler for Events of type K.
 pub fn on<K: Assoc<X>, X: Send>(handler: Handler<X>) {
     queue().on::<K, X>(handler)
 }
 
+/// Handlers are Fns of a specific type.
 pub type Handler<X> = Box<Fn<(Box<Event<X>>,), ()> + Send>;
 
 enum EventKey<K: Assoc<X>, X: Send> {}
 
 impl<K: Assoc<X>, X: Send> Assoc<Handler<X>> for EventKey<K, X> {}
 
+/// The global event-queue, which collects and dispatches events.
 pub struct EventQueue {
     // The TypeId here is the key of the Handler in TypeMap,
     // in this case it is TypeId::of::<EventKey<K, X>> and the
@@ -107,6 +121,7 @@ pub struct EventQueue {
 }
 
 impl EventQueue {
+    /// Create a new EventQueue, inserting it into TLS.
     pub fn new() -> Arc<EventQueue> {
         let this = Arc::new(EventQueue {
             queue: Mutex::new(RingBuf::new()),
@@ -180,5 +195,11 @@ pub fn spawn(func: proc(): Send) {
         LocalEventQueue.replace(Some(queue));
         func()
     });
+}
+
+/// Block this task and dedicate it to handling events.
+pub fn dedicate() {
+    let queue = queue();
+    loop { queue.trigger() }
 }
 
