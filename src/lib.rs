@@ -172,12 +172,16 @@ impl EventQueue {
         //
         // This is necessary because we cannot name the real type behind this pointer here,
         // as that information was erased when we turned the Event into a Box<Any>.
-        let event: &() = unsafe { event.downcast_ref_unchecked() };
+        let data: &() = unsafe { event.downcast_ref_unchecked() };
 
         // Call the handler with an opaque pointer to the data. Since &T and Box<T> have
         // the same representation and &T and &() are also the same, the Handler's code
         // can actually treat the data as the type it expects, and all is good.
-        handler.call((event,))
+        handler.call((data,));
+
+        // This memory was already freed at exit from Handler, since the Handler thinks it received
+        // a Box<T>.
+        mem::forget(event);
     }
 
     fn on<K: Assoc<X>, X: Send>(&self, handler: Handler<X>) {
