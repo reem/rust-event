@@ -24,13 +24,11 @@ macro_rules! queue(
     }}
 )
 
-pub struct Event<T: Send> {
-    data: T
-}
+pub struct Event<T: Send>(T);
 
 impl<T: Send> Event<T> {
     pub fn new(val: T) -> Event<T> {
-        Event { data: val }
+        Event(val)
     }
 
     pub fn trigger<K: Assoc<T>>(self) {
@@ -75,7 +73,7 @@ impl EventQueue {
         self.queue.lock().push((TypeId::of::<EventKey<K, X>>(), box event as Box<Any + Send>));
     }
 
-    // Triggers the first event in the queue.
+    /// Triggers the first event in the queue, running the handler in the calling thread.
     pub fn trigger(&self) {
         let (id, event) = match self.queue.lock().pop_front() {
             Some(x) => x,
@@ -90,9 +88,8 @@ impl EventQueue {
             }.downcast_ref_unchecked::<&Fn<(&(),), ()>>()
         };
 
-        let event: &Event<()> = unsafe { event.downcast_ref_unchecked() };
-        let event_data = &event.data;
-        handler.call((event_data,))
+        let event: &() = unsafe { event.downcast_ref_unchecked() };
+        handler.call((event,))
     }
 
     fn on<K: Assoc<X>, X: Send>(&self, handler: Handler<X>) {
