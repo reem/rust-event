@@ -7,22 +7,23 @@
 
 extern crate typemap;
 extern crate "unsafe-any" as uany;
+extern crate rustrt;
 
 use std::collections::{RingBuf, Deque};
 use std::sync::{Arc, Mutex, RWLock};
 use std::any::Any;
 use std::intrinsics::TypeId;
 
+use rustrt::local_data::Ref;
+
 use typemap::{TypeMap, Assoc};
 use uany::UncheckedAnyDowncast;
 
 local_data_key!(LocalEventQueue: Arc<EventQueue>)
 
-macro_rules! queue(
-    () => {{
-        LocalEventQueue.get().expect("an Event Queue to be in TLS")
-    }}
-)
+pub fn queue() -> Ref<Arc<EventQueue>> {
+    LocalEventQueue.get().expect("an Event Queue to be in TLS")
+}
 
 pub struct Event<T: Send>(T);
 
@@ -32,12 +33,12 @@ impl<T: Send> Event<T> {
     }
 
     pub fn trigger<K: Assoc<T>>(self) {
-        (queue!()).queue::<K, T>(self)
+        queue().queue::<K, T>(self)
     }
 }
 
 pub fn on<K: Assoc<X>, X: Send>(handler: Handler<X>) {
-    (queue!()).on::<K, X>(handler)
+    queue().on::<K, X>(handler)
 }
 
 pub type Handler<X> = Box<Fn<(Box<Event<X>>,), ()> + Send>;
@@ -129,11 +130,11 @@ impl EventQueue {
     }
 }
 
-/// Spawn a task which can call `queue!()`
+/// Spawn a task which can access the EventQueue.
 pub fn spawn(func: proc(): Send) {
     use std::task;
 
-    let queue = (queue!()).clone();
+    let queue = queue().clone();
     task::spawn(proc() {
         LocalEventQueue.replace(Some(queue));
         func()
