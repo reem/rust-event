@@ -49,6 +49,9 @@ That's it! Further abstractions should be built above this basic API.
 ## Example:
 
 ```rust
+use event::{mod, EventQueue, Event};
+use typemap::Assoc;
+
 struct NewConnection;
 struct Connection;
 
@@ -58,18 +61,18 @@ impl Assoc<Connection> for NewConnection {}
 EventQueue::new();
 
 // Listen for NewConnection events.
-on::<NewConnection>(|&: conn| /* something with conn */);
+event::on::<NewConnection>(|&: conn| /* something with conn */);
 
-spawn(proc() {
+event::spawn(proc() {
     // Queues this event to be fired.
     Event::new(Connection).trigger::<NewConnection>();
 });
 
 // Get an event off the queue and handle it in this thread, if there are any.
-queue().trigger();
+event::queue().trigger();
 
 // Dedicate this thread to handling events, blocking it.
-dedicate()
+event::dedicate()
 ```
 
 ## License
