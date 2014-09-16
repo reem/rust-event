@@ -52,10 +52,15 @@ pub struct EventQueue {
     // Box<Any> is Event<X>.
     //
     // That way - even though we do not know X, we can do an
-    // unchecked downcast of the Handler to a Box<Fn<(Box<()>,), ()>>
+    // unchecked downcast of the Handler to a &Fn<(&(),), ()>
     // and downcast the Event to Event<()>, access the data, box it,
     // and call the Handler with the data.
+    //
+    // Since we always need a mutable lock, we use Mutex for faster locking and unlocking.
     queue: Mutex<RingBuf<(TypeId, Box<Any + Send>)>>,
+
+    // Since we usually need only immutable access to call Handlers, we can use an RWLock
+    // for more concurrent access.
     handlers: RWLock<TypeMap>
 }
 
@@ -65,34 +70,61 @@ impl EventQueue {
             queue: Mutex::new(RingBuf::new()),
             handlers: RWLock::new(TypeMap::new())
         });
+
+        // Put ourselves in TLS.
         LocalEventQueue.replace(Some(this.clone()));
         this
     }
 
     fn queue<K: Assoc<X>, X: Send>(&self, event: Event<X>) {
+        // Lock the queue for the shortest time possible, just pushing the data.
         self.queue.lock().push((TypeId::of::<EventKey<K, X>>(), box event as Box<Any + Send>));
     }
 
     /// Triggers the first event in the queue, running the handler in the calling thread.
+    ///
+    /// If there is no event, this returns immediately.
     pub fn trigger(&self) {
+        // Lock the queue for as short a time as possible, just grabbing an event if there is one.
         let (id, event) = match self.queue.lock().pop_front() {
             Some(x) => x,
             None => return
         };
 
+        // We need the read lock as long as we have handler.
         let read = self.handlers.read();
+
         let handler = unsafe {
+            // Grab the internal HashMap from TypeMap and query for the data
+            // with the TypeId we got from the queue.
+            //
+            // This should always contain a Handler of the appropriate type as we are
+            // careful to only allow insertions of (EventKey<K, X>, Handler<X>) pairs.
             match read.data().find(&id) {
                 Some(x) => x,
+                // No handler for this event, move along.
                 None => return
+            // Downcast this handler to the fake type, which takes an opaque pointer
+            // instead of the correct Box<Event<X>> because we cannot name X.
             }.downcast_ref_unchecked::<&Fn<(&(),), ()>>()
         };
 
+        // Get the data as an opaque pointer. This is highly, highly unsafe but is fine
+        // here because we carefully only inserted the correct event type for the correct
+        // handler.
+        //
+        // This is necessary because we cannot name the real type behind this pointer here,
+        // as that information was erased when we turned the Event into a Box<Any>.
         let event: &() = unsafe { event.downcast_ref_unchecked() };
+
+        // Call the handler with an opaque pointer to the data. Since &T and Box<T> have
+        // the same representation and &T and &() are also the same, the Handler's code
+        // can actually treat the data as the type it expects, and all is good.
         handler.call((event,))
     }
 
     fn on<K: Assoc<X>, X: Send>(&self, handler: Handler<X>) {
+        // This is the only time we take a write lock, because we have to insert.
         self.handlers.write().insert::<EventKey<K, X>, Handler<X>>(handler);
     }
 }
