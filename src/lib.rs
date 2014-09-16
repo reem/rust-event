@@ -22,7 +22,7 @@
 //!
 //! type Handler<T> = Box<Fn<(Box<Event<T>>,), ()> + Send;
 //!
-//! fn on<K: Assoc<T>, T: Send>(handler: Handler<T>);
+//! fn on<K: Assoc<T>, T: Send, F: /* unboxed Handler<T> */>(handler: F);
 //!
 //! fn dedicate();
 //!
@@ -91,8 +91,8 @@ impl<T: Send> Event<T> {
 }
 
 /// Register a Handler for Events of type K.
-pub fn on<K: Assoc<X>, X: Send>(handler: Handler<X>) {
-    queue().on::<K, X>(handler)
+pub fn on<K: Assoc<X>, X: Send, F: Fn<(Box<Event<X>>,), ()> + Send>(handler: F) {
+    queue().on::<K, X>(box handler as Handler<X>)
 }
 
 /// Handlers are Fns of a specific type.
