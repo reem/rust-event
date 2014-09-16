@@ -10,7 +10,7 @@
 //!
 //! Rust-Event exports a small and focused API:
 //!
-//! ```{rust, ignore}
+//! ```{notrust, ignore}
 //! fn queue() -> Ref<Arc<EventQueue>>;
 //!
 //! struct Event<T>;
