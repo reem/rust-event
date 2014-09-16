@@ -97,3 +97,14 @@ impl EventQueue {
     }
 }
 
+/// Spawn a task which can call `queue!()`
+pub fn spawn(func: proc(): Send) {
+    use std::task;
+
+    let queue = (queue!()).clone();
+    task::spawn(proc() {
+        LocalEventQueue.replace(Some(queue));
+        func()
+    });
+}
+
