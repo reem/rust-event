@@ -91,12 +91,12 @@ impl<T: Send> Event<T> {
 }
 
 /// Register a Handler for Events of type K.
-pub fn on<K: Assoc<X>, X: Send, F: Fn<(Box<Event<X>>,), ()> + Send>(handler: F) {
-    queue().on::<K, X>(box handler as Handler<X>)
+pub fn on<K: Assoc<X>, X: Send>(handler: Handler<X>) {
+    queue().on::<K, X>(handler)
 }
 
 /// Handlers are Fns of a specific type.
-pub type Handler<X> = Box<Fn<(Box<Event<X>>,), ()> + Send>;
+pub type Handler<X> = Box<Fn<(Box<X>,), ()> + Send>;
 
 enum EventKey<K: Assoc<X>, X: Send> {}
 
