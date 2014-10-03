@@ -35,12 +35,12 @@ fn main() {
     // Create 100 connections - creating a connection should
     // block as little as possible, and could use an async io
     // library like mio to make non-blocking feasible.
-    for i in range(0u, 1000) {
+    for _ in range(0u, 1000) {
         connecter.connect();
     }
 
     // Spawn 5 threads to handle connections
-    for i in range(0u, 5) {
+    for _ in range(0u, 5) {
         event::spawn(event::dedicate);
     }
 }

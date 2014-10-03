@@ -50,7 +50,6 @@ extern crate typemap;
 extern crate "unsafe-any" as uany;
 extern crate rustrt;
 
-use std::collections::{RingBuf, Deque};
 use std::sync::{Arc, Mutex, RWLock};
 use std::any::Any;
 use std::intrinsics::TypeId;
@@ -113,20 +112,27 @@ pub struct EventQueue {
     // and downcast the Event to Event<()>, access the data, box it,
     // and call the Handler with the data.
     //
-    // Since we always need a mutable lock, we use Mutex for faster locking and unlocking.
-    queue: Mutex<RingBuf<(TypeId, Box<Any + Send>)>>,
+    // Receiver is NoSync, so we must use a Mutex.
+    queue: Mutex<Receiver<(TypeId, Box<Any + Send>)>>,
 
     // Since we usually need only immutable access to call Handlers, we can use an RWLock
-    // for more concurrent access.
-    handlers: RWLock<TypeMap>
+    // to reduce contention.
+    handlers: RWLock<TypeMap>,
+
+    // The sender used to push onto the queue.
+    //
+    // Sender is NoSync, so we must use a Mutex.
+    enqueuer: Mutex<Sender<(TypeId, Box<Any + Send>)>>
 }
 
 impl EventQueue {
     /// Create a new EventQueue, inserting it into TLS.
     pub fn new() -> Arc<EventQueue> {
+        let (sender, receiver) = channel();
         let this = Arc::new(EventQueue {
-            queue: Mutex::new(RingBuf::new()),
-            handlers: RWLock::new(TypeMap::new())
+            queue: Mutex::new(receiver),
+            handlers: RWLock::new(TypeMap::new()),
+            enqueuer: Mutex::new(sender)
         });
 
         // Put ourselves in TLS.
@@ -135,19 +141,15 @@ impl EventQueue {
     }
 
     fn queue<K: Assoc<X>, X: Send>(&self, event: Event<X>) {
-        // Lock the queue for the shortest time possible, just pushing the data.
-        self.queue.lock().push((TypeId::of::<EventKey<K, X>>(), box event as Box<Any + Send>));
+        self.enqueuer.lock().send((TypeId::of::<EventKey<K, X>>(), box event as Box<Any + Send>));
     }
 
     /// Triggers the first event in the queue, running the handler in the calling thread.
     ///
-    /// If there is no event, this returns immediately.
+    /// If there is no event, this blocks the current task until there is one.
     pub fn trigger(&self) {
         // Lock the queue for as short a time as possible, just grabbing an event if there is one.
-        let (id, event) = match self.queue.lock().pop_front() {
-            Some(x) => x,
-            None => return
-        };
+        let (id, event) = self.queue.lock().recv();
 
         // We need the read lock as long as we have handler.
         let read = self.handlers.read();
