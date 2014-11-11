@@ -1,6 +1,6 @@
 #![feature(macro_rules)]
 #![license = "MIT"]
-#![deny(missing_doc)]
+#![deny(missing_docs)]
 #![deny(warnings)]
 
 //! A multi-threaded Event-Loop for Rust.
@@ -160,7 +160,7 @@ impl EventQueue {
             //
             // This should always contain a Handler of the appropriate type as we are
             // careful to only allow insertions of (EventKey<K, X>, Handler<X>) pairs.
-            match read.data().find(&id) {
+            match read.data().get(&id) {
                 Some(x) => x,
                 // No handler for this event, move along.
                 None => return
