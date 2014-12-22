@@ -1,19 +1,9 @@
 [package]
 
 name = "event"
-version = "0.0.1"
+version = "0.1.0"
 authors = ["Jonathan Reem <jonathan.reem@gmail.com>"]
-
-[lib]
-
-name = "event"
-path = "src/lib.rs"
-
-[dependencies.typemap]
-
-git = "https://github.com/reem/rust-typemap.git"
-
-[dependencies.unsafe-any]
-
-git = "https://github.com/reem/rust-unsafe-any.git"
+description = "A mulit-threaded event loop for Rust"
+repository = "https://github.com/reem/rust-event"
+license = "MIT"
 
