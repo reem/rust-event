@@ -1,77 +1,34 @@
 #![feature(macro_rules)]
-#![deny(missing_docs, warnings)]
+// #![deny(missing_docs, warnings)]
 
-//! A multi-threaded Event-Loop for Rust.
+//! An Event-Loop for Rust.
 
-use std::thunk::Thunk;
-use std::{mem, ptr};
+extern crate mio;
 
-pub static EVENT_LOOP: EventLoop = EventLoop;
+use std::cell::RefCell;
+use ioloop::{IoLoop, IoLoopSender, Registration};
 
-pub struct EventLoop;
+pub use ioloop::Handler;
+pub use error::{EventResult, EventError};
 
-impl Deref<EventLoopInner> for EventLoop {
-    fn deref(&self) -> &EventLoopInner {
-        use std::sync::{Once, ONCE_INIT};
-        use std::mem;
+mod ioloop;
+mod error;
 
-        static mut DATA: *const EventLoop = 0 as *const _;
-        static mut INIT: Once = ONCE_INIT;
+thread_local!(static EVENT_LOOP: RefCell<IoLoop> =
+              RefCell::new(IoLoop::new()));
+thread_local!(static EVENT_LOOP_SENDER: IoLoopSender =
+              EVENT_LOOP.with(move |event| event.borrow().channel()));
 
-        unsafe {
-            INIT.doit(|:| DATA = mem::transmute(box EventLoopInner::new()));
-            &*DATA
-        }
-    }
+pub fn register<H: Handler>(handler: H) {
+    EVENT_LOOP_SENDER.with(move |events| events.send(Registration::new(box handler)));
 }
 
-#[deriving(Default)]
-struct EventLoopInner {
-    timeouts: Timeouts,
-    queued: Queued,
-    io_events: MioEventLoop,
+pub fn start() {
+    EVENT_LOOP_SENDER.with(|_| {});
 }
 
-impl EventLoopInner {
-    fn new() -> EventLoopInner {
-        Default::default()
-    }
-
-    fn poll(&self) -> bool {
-        self.queued.poll() || self.timeouts.poll() || self.io_events.poll()
-    }
-}
-
-struct Timeouts {
-    timeouts: [Option<Timeout>, ..1024]
-}
-
-impl Default for Timeouts {
-    fn default() -> Timeouts {
-        Timeouts {
-            timeouts: [None, ..1024]
-        }
-    }
-}
-
-struct Timeout {
-    end: uint,
-    callback: Thunk
-}
-
-struct Queued {
-    queued: [Option<Thunk>, ..64]
-}
-
-impl Default for Queued {
-    fn default() -> Queued {
-        Queued {
-            queued: [None, ..64]
-        }
-    }
-}
-
-struct MioEventLoop {
-    loops: uint
+// Starts the event loop on this thread.
+pub fn run() {
+    EVENT_LOOP.with(move |event| event.borrow_mut().run().unwrap())
 }
 
