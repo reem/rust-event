@@ -28,6 +28,10 @@ pub fn timeout<F: FnOnce() + Send>(callback: F, timeout: Duration) {
     EVENT_LOOP_SENDER.with(move |events| events.send(Registration::timeout(callback, timeout)));
 }
 
+pub fn next<F: FnOnce() + Send>(callback: F) {
+    EVENT_LOOP_SENDER.with(move |events| events.send(Registration::next(callback)));
+}
+
 pub fn start() {
     EVENT_LOOP_SENDER.with(|_| {});
 }

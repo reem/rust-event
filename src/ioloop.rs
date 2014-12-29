@@ -53,7 +53,8 @@ pub trait Handler: Send {
 
 pub enum Registration {
     Handler(Box<Handler>),
-    Timeout(Thunk, Duration)
+    Timeout(Thunk, Duration),
+    Next(Thunk)
 }
 
 impl Registration {
@@ -63,6 +64,10 @@ impl Registration {
 
     pub fn timeout<F: FnOnce() + Send>(callback: F, timeout: Duration) -> Registration {
         Registration::Timeout(Thunk::new(callback), timeout)
+    }
+
+    pub fn next<F: FnOnce() + Send>(callback: F) -> Registration {
+        Registration::Next(Thunk::new(callback))
     }
 }
 
@@ -148,9 +153,12 @@ impl MioHandler<Thunk, Registration> for IoHandler {
                     handler.opt().unwrap_or(event::LEVEL)
                 );
             },
+
             Registration::Timeout(handler, timeout) => {
                 let _ = events.timeout(handler, timeout);
-            }
+            },
+
+            Registration::Next(thunk) => { thunk.invoke(()) }
         }
     }
 
