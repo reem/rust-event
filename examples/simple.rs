@@ -1,47 +1,116 @@
-#![feature(unboxed_closures)]
+#![feature(unboxed_closures, phase)]
 
 extern crate event;
-extern crate typemap;
+extern crate mio;
 
-use event::{EventQueue, Event};
-use typemap::Assoc;
+#[phase(plugin, link)]
+extern crate log;
 
-struct ConnectionCreator;
+use event::{run, register, Handler};
 
-#[deriving(Show)]
-struct Connection;
+use mio::net::SockAddr;
+use mio::net::tcp::{TcpSocket, TcpAcceptor};
+use mio::{IoHandle, IoReader, IoWriter, IoAcceptor, IoDesc};
+use mio::event as evt;
 
-impl Assoc<Connection> for Connection {}
+const RESPONSE: &'static str = "HTTP/1.1 200 OK\r
+Content-Length: 11\r
+\r
+Hello World\r
+\r";
 
-impl ConnectionCreator {
-    /// Triggers a Connection
-    fn connect(&self) {
-        Event::new(Connection).trigger::<Connection>();
+struct TcpAcceptHandler {
+    acceptor: TcpAcceptor
+}
+
+struct TcpConnHandler {
+    sock: TcpSocket,
+    message: &'static [u8],
+    readbuf: [u8, ..64 * 1024]
+}
+
+impl Handler for TcpAcceptHandler {
+    fn readable(&mut self, _: evt::ReadHint) -> bool {
+        info!("Accepting a new conncetion.");
+        self.accept();
+        true
+    }
+
+    // Can't happen, no-op
+    fn writable(&mut self) -> bool { true }
+
+    fn desc(&self) -> &IoDesc {
+        info!("Registering an acceptor.");
+        self.acceptor.desc()
+    }
+}
+
+impl TcpAcceptHandler {
+    fn accept(&mut self) {
+        let sock = self.acceptor.accept().unwrap();
+
+        if !sock.would_block() {
+            let conn = TcpConnHandler {
+                sock: sock.unwrap(),
+                message: RESPONSE.as_bytes(),
+                readbuf: [0, ..64 * 1024]
+            };
+            register(conn);
+        }
+    }
+}
+
+impl Handler for TcpConnHandler {
+    fn readable(&mut self, _: evt::ReadHint) -> bool {
+        info!("Reading from an existing tcp connection.");
+
+        match self.sock.read_slice(&mut self.readbuf) {
+            Ok(_) => { true }
+           Err(ref e) if e.is_eof() => false,
+            Err(e) => {
+                error!("Error reading: {}", e);
+                false
+            }
+        }
+    }
+
+    fn writable(&mut self) -> bool {
+        info!("Writing to an existing tcp connection.");
+
+        match self.sock.write_slice(self.message) {
+           Ok(wrote) => {
+               self.message = self.message.slice_from(wrote.unwrap());
+               true
+           },
+           Err(ref e) if e.is_eof() => false,
+           Err(e) => {
+               error!("Error writing: {}", e);
+               false
+           }
+        }
+    }
+
+    fn desc(&self) -> &IoDesc { self.sock.desc() }
+
+    fn interest(&self) -> Option<evt::Interest> {
+        Some(evt::READABLE | evt::WRITABLE)
+    }
+
+    fn opt(&self) -> Option<evt::PollOpt> {
+        Some(evt::PollOpt::edge())
     }
 }
 
 fn main() {
-    // Initialize the event queue.
-    EventQueue::new();
+    let addr = SockAddr::parse("127.0.0.1:3000")
+        .expect("could not parse InetAddr");
 
-    // Set up our handler.
-    event::on::<Connection, Connection>(box() (|&: box conn: Box<Connection>| {
-        println!("Made connection: {}", conn);
-    }) as event::Handler<Connection>);
+    // Open socket
+    let srv = TcpSocket::v4().unwrap()
+        .bind(&addr).unwrap()
+        .listen(256u).unwrap();
 
-    // Create our connecter.
-    let connecter = ConnectionCreator;
-
-    // Create 100 connections - creating a connection should
-    // block as little as possible, and could use an async io
-    // library like mio to make non-blocking feasible.
-    for _ in range(0u, 1000) {
-        connecter.connect();
-    }
-
-    // Spawn 5 threads to handle connections
-    for _ in range(0u, 5) {
-        event::spawn(event::dedicate);
-    }
+    register(TcpAcceptHandler { acceptor: srv });
+    run();
 }
 
