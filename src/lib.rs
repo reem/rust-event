@@ -6,6 +6,7 @@
 extern crate mio;
 
 use std::cell::RefCell;
+use std::time::duration::Duration;
 use ioloop::{IoLoop, IoLoopSender, Registration};
 
 pub use ioloop::Handler;
@@ -21,6 +22,10 @@ thread_local!(static EVENT_LOOP_SENDER: IoLoopSender =
 
 pub fn register<H: Handler>(handler: H) {
     EVENT_LOOP_SENDER.with(move |events| events.send(Registration::new(box handler)));
+}
+
+pub fn timeout<F: FnOnce() + Send>(callback: F, timeout: Duration) {
+    EVENT_LOOP_SENDER.with(move |events| events.send(Registration::timeout(callback, timeout)));
 }
 
 pub fn start() {

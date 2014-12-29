@@ -1,13 +1,18 @@
+use std::time::duration::Duration;
+use std::thunk::Thunk;
+
 use mio::util::Slab;
 use mio::{EventLoop, EventLoopSender, Token, IoHandle, IoDesc, event};
 use mio::Handler as MioHandler;
 
 use {EventResult};
 
+type MioEventLoop = EventLoop<Thunk, Registration>;
+
 const MAX_LISTENERS: uint = 64 * 1024;
 
 pub struct IoLoop {
-    events: EventLoop<(), Registration>
+    events: MioEventLoop
 }
 
 impl IoLoop {
@@ -46,13 +51,18 @@ pub trait Handler: Send {
     fn opt(&self) -> Option<event::PollOpt> { None }
 }
 
-pub struct Registration {
-    handler: Box<Handler>
+pub enum Registration {
+    Handler(Box<Handler>),
+    Timeout(Thunk, Duration)
 }
 
 impl Registration {
     pub fn new(handler: Box<Handler>) -> Registration {
-        Registration { handler: handler }
+        Registration::Handler(handler)
+    }
+
+    pub fn timeout<F: FnOnce() + Send>(callback: F, timeout: Duration) -> Registration {
+        Registration::Timeout(Thunk::new(callback), timeout)
     }
 }
 
@@ -71,7 +81,7 @@ impl<'a> IoHandle for Desc<'a> {
 }
 
 struct IoHandler {
-    slab: Slab<Box<Handler>>
+    slab: Slab<Box<Handler>>,
 }
 
 impl IoHandler {
@@ -87,8 +97,8 @@ impl IoHandler {
     }
 }
 
-impl MioHandler<(), Registration> for IoHandler {
-    fn readable(&mut self, events: &mut EventLoop<(), Registration>, token: Token,
+impl MioHandler<Thunk, Registration> for IoHandler {
+    fn readable(&mut self, events: &mut MioEventLoop, token: Token,
                 hint: event::ReadHint) {
         // If this was deregistered during writable.
         if !self.slab.contains(token) { return }
@@ -107,7 +117,7 @@ impl MioHandler<(), Registration> for IoHandler {
         }
     }
 
-    fn writable(&mut self, events: &mut EventLoop<(), Registration>, token: Token) {
+    fn writable(&mut self, events: &mut MioEventLoop, token: Token) {
         // If this was deregistered during readable.
         if !self.slab.contains(token) { return }
 
@@ -125,17 +135,27 @@ impl MioHandler<(), Registration> for IoHandler {
         }
     }
 
-    fn notify(&mut self, events: &mut EventLoop<(), Registration>, reg: Registration) {
-        let handler = reg.handler;
-        let token = self.register(handler);
-        let handler = &mut self.slab[token];
+    fn notify(&mut self, events: &mut MioEventLoop, reg: Registration) {
+        match reg {
+            Registration::Handler(handler) => {
+                let token = self.register(handler);
+                let handler = &mut self.slab[token];
 
-        let _ = events.register_opt(
-            &Desc::new(handler.desc()),
-            token,
-            handler.interest().unwrap_or(event::READABLE),
-            handler.opt().unwrap_or(event::LEVEL)
-        );
+                let _ = events.register_opt(
+                    &Desc::new(handler.desc()),
+                    token,
+                    handler.interest().unwrap_or(event::READABLE),
+                    handler.opt().unwrap_or(event::LEVEL)
+                );
+            },
+            Registration::Timeout(handler, timeout) => {
+                let _ = events.timeout(handler, timeout);
+            }
+        }
+    }
+
+    fn timeout(&mut self, _: &mut MioEventLoop, thunk: Thunk) {
+        thunk.invoke(())
     }
 }
 
