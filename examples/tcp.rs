@@ -66,7 +66,7 @@ impl Handler for TcpConnHandler {
 
         match self.sock.read_slice(&mut self.readbuf) {
             Ok(_) => { true }
-           Err(ref e) if e.is_eof() => false,
+            Err(ref e) if e.is_eof() => false,
             Err(e) => {
                 error!("Error reading: {}", e);
                 false
