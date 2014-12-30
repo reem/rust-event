@@ -1,4 +1,4 @@
-#![feature(macro_rules)]
+#![feature(macro_rules, unboxed_closures)]
 // #![deny(missing_docs, warnings)]
 
 //! An Event-Loop for Rust.
@@ -34,6 +34,23 @@ pub fn next<F: FnOnce() + Send>(callback: F) {
 
 pub fn start() {
     EVENT_LOOP_SENDER.with(|_| {});
+}
+
+pub fn interval<F: FnMut() + Send>(callback: F, delay: Duration) {
+    struct Interval<F> {
+        callback: F,
+        delay: Duration
+    }
+
+    impl<F: FnMut() + Send()> FnOnce() for Interval<F> {
+        extern "rust-call" fn call_once(mut self, _: ()) {
+            (self.callback)();
+            let delay = self.delay.clone();
+            timeout(self, delay);
+        }
+    }
+
+    timeout(Interval { callback: callback, delay: delay.clone() }, delay);
 }
 
 // Starts the event loop on this thread.
