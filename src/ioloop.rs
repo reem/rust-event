@@ -5,7 +5,7 @@ use mio::util::Slab;
 use mio::{EventLoop, EventLoopSender, Token, IoHandle, IoDesc, event};
 use mio::Handler as MioHandler;
 
-use {EventResult};
+use {EventResult, Handler};
 
 type MioEventLoop = EventLoop<Thunk, Registration>;
 
@@ -40,15 +40,6 @@ impl IoLoopSender {
     pub fn send(&self, reg: Registration) {
         let _ = self.events.send(reg);
     }
-}
-
-pub trait Handler: Send {
-    fn readable(&mut self, hint: event::ReadHint) -> bool;
-    fn writable(&mut self) -> bool;
-    fn desc(&self) -> &IoDesc;
-
-    fn interest(&self) -> Option<event::Interest> { None }
-    fn opt(&self) -> Option<event::PollOpt> { None }
 }
 
 pub enum Registration {

@@ -9,11 +9,12 @@ use std::cell::RefCell;
 use std::time::duration::Duration;
 use ioloop::{IoLoop, IoLoopSender, Registration};
 
-pub use ioloop::Handler;
+pub use handler::{Handler, ClosureHandler};
 pub use error::{EventResult, EventError};
 
 mod ioloop;
 mod error;
+mod handler;
 
 thread_local!(static EVENT_LOOP: RefCell<IoLoop> =
               RefCell::new(IoLoop::new()));
