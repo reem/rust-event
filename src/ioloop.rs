@@ -5,7 +5,7 @@ use mio::util::Slab;
 use mio::{EventLoop, EventLoopSender, Token, IoHandle, IoDesc, event};
 use mio::Handler as MioHandler;
 
-use {EventResult, Handler};
+use {EventResult, EventError, Handler};
 
 type MioEventLoop = EventLoop<Thunk, Registration>;
 
@@ -23,7 +23,12 @@ impl IoLoop {
     }
 
     pub fn run(&mut self) -> EventResult<()> {
-        Ok(try!(self.events.run(IoHandler::new()).map(|_| ())))
+        match self.events.run(IoHandler::new()) {
+            Ok(..) => Ok(()),
+            Err(err) => {
+                Err(EventError::MioError(err.error))
+            }
+        }
     }
 
     pub fn channel(&self) -> IoLoopSender {
