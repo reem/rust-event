@@ -1,7 +1,7 @@
 [package]
 
 name = "event"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Jonathan Reem <jonathan.reem@gmail.com>"]
 description = "A mulit-threaded event loop for Rust"
 repository = "https://github.com/reem/rust-event"
@@ -12,5 +12,4 @@ version = "*"
 
 [dependencies.mio]
 version = "*"
-git = "https://github.com/carllerche/mio"
 
