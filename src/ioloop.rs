@@ -1,12 +1,15 @@
-use std::time::duration::Duration;
 use std::thunk::Invoke;
 
 use mio::util::Slab;
-use mio::{EventLoop, EventLoopSender, Token, IoHandle, IoDesc, event};
+use mio::{EventLoop, EventLoopSender, Token, IoDesc, event};
 use mio::Handler as MioHandler;
+
+use registration::Registration;
+use util::Desc;
 
 use {EventResult, EventError, Handler};
 
+pub type IoLoopSender = EventLoopSender<Registration>;
 type MioEventLoop = EventLoop<Box<Invoke + 'static>, Registration>;
 
 const MAX_LISTENERS: uint = 64 * 1024;
@@ -32,59 +35,8 @@ impl IoLoop {
     }
 
     pub fn channel(&self) -> IoLoopSender {
-        IoLoopSender { events: self.events.channel() }
+        self.events.channel()
     }
-
-}
-
-pub struct IoLoopSender {
-    events: EventLoopSender<Registration>
-}
-
-impl IoLoopSender {
-    pub fn send(&self, reg: Registration) {
-        let _ = self.events.send(reg);
-    }
-}
-
-pub enum Registration {
-    Handler(Box<Handler>),
-    Timeout(Box<Invoke + 'static>, Duration),
-    Next(Box<Invoke + 'static>)
-}
-
-// This is an *incorrect* implementation, in the sense that
-// sending a Registration can be incorrect. However, we
-// only send Registration and its contents around a single
-// thread so it is ok for us to fake Send to fool mio.
-unsafe impl Send for Registration {}
-
-impl Registration {
-    pub fn new(handler: Box<Handler>) -> Registration {
-        Registration::Handler(handler)
-    }
-
-    pub fn timeout<F: FnOnce() + 'static>(callback: F, timeout: Duration) -> Registration {
-        Registration::Timeout(box move |:_| { callback() }, timeout)
-    }
-
-    pub fn next<F: FnOnce() + 'static>(callback: F) -> Registration {
-        Registration::Next(box move |:_| { callback() })
-    }
-}
-
-struct Desc<'a> {
-    desc: &'a IoDesc
-}
-
-impl<'a> Desc<'a> {
-    fn new(desc: &'a IoDesc) -> Desc<'a> {
-        Desc { desc: desc }
-    }
-}
-
-impl<'a> IoHandle for Desc<'a> {
-    fn desc(&self) -> &IoDesc { self.desc }
 }
 
 struct IoHandler {
@@ -98,74 +50,84 @@ impl IoHandler {
         }
     }
 
-    fn register(&mut self, handler: Box<Handler>) -> Token {
-        self.slab.insert(handler)
-            .ok().expect("More than MAX_LISTENERS events registered.")
+    fn register(&mut self, events: &mut MioEventLoop, handler: Box<Handler>) {
+        let token = self.slab.insert(handler)
+            .ok().expect("More than MAX_LISTENERS events registered.");
+        register(events, &mut *self.slab[token], token);
+    }
+
+    fn reregister(&mut self, events: &mut MioEventLoop, token: Token) {
+        reregister(events, &mut *self.slab[token], token);
+    }
+
+    fn deregister(&mut self, events: &mut MioEventLoop, token: Token) {
+        deregister(events, self.slab[token].desc());
+        self.slab.remove(token);
     }
 }
 
 impl MioHandler<Box<Invoke + 'static>, Registration> for IoHandler {
     fn readable(&mut self, events: &mut MioEventLoop, token: Token,
                 hint: event::ReadHint) {
-        // If this was deregistered during writable.
         if !self.slab.contains(token) { return }
 
         if self.slab[token].readable(hint) {
-            let handler = &self.slab[token];
-            let _ = events.reregister(
-                &Desc::new(handler.desc()),
-                token,
-                handler.interest().unwrap_or(event::READABLE),
-                handler.opt().unwrap_or(event::LEVEL)
-            );
+            self.reregister(events, token);
         } else {
-            let _ = events.deregister(&Desc::new(self.slab[token].desc())).unwrap();
-            self.slab.remove(token);
+            self.deregister(events, token);
         }
     }
 
     fn writable(&mut self, events: &mut MioEventLoop, token: Token) {
-        // If this was deregistered during readable.
         if !self.slab.contains(token) { return }
 
         if self.slab[token].writable() {
-            let handler = &self.slab[token];
-            let _ = events.reregister(
-                &Desc::new(handler.desc()),
-                token,
-                handler.interest().unwrap_or(event::READABLE),
-                handler.opt().unwrap_or(event::LEVEL)
-            );
+            self.reregister(events, token);
         } else {
-            let _ = events.deregister(&Desc::new(self.slab[token].desc())).unwrap();
-            self.slab.remove(token);
+            self.deregister(events, token);
         }
     }
 
     fn notify(&mut self, events: &mut MioEventLoop, reg: Registration) {
         match reg {
             Registration::Handler(handler) => {
-                let token = self.register(handler);
-                let handler = &mut self.slab[token];
-
-                let _ = events.register_opt(
-                    &Desc::new(handler.desc()),
-                    token,
-                    handler.interest().unwrap_or(event::READABLE),
-                    handler.opt().unwrap_or(event::LEVEL)
-                );
+                self.register(events, handler);
             },
 
             Registration::Timeout(handler, timeout) => {
                 let _ = events.timeout(handler, timeout);
             },
 
-            Registration::Next(thunk) => { thunk.invoke(()) }
+            Registration::Next(thunk) => {
+                thunk.invoke(())
+            }
         }
     }
 
     fn timeout(&mut self, _: &mut MioEventLoop, thunk: Box<Invoke + 'static>) {
         thunk.invoke(())
     }
+}
+
+fn register(events: &mut MioEventLoop, handler: &mut Handler, token: Token) {
+    let _ = events.register_opt(
+        &Desc::new(handler.desc()),
+        token,
+        handler.interest().unwrap_or(event::READABLE),
+        handler.opt().unwrap_or(event::LEVEL)
+    );
+}
+
+fn reregister(events: &mut MioEventLoop, handler: &mut Handler, token: Token) {
+    let _ = events.reregister(
+        &Desc::new(handler.desc()),
+        token,
+        handler.interest().unwrap_or(event::READABLE),
+        handler.opt().unwrap_or(event::LEVEL)
+    );
+}
+
+fn deregister(events: &mut MioEventLoop, desc: &IoDesc) {
+    let _ = events.deregister(&Desc::new(desc)).unwrap();
 }
 

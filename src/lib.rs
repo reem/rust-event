@@ -7,30 +7,45 @@ extern crate mio;
 
 use std::cell::RefCell;
 use std::time::duration::Duration;
-use ioloop::{IoLoop, IoLoopSender, Registration};
+use ioloop::{IoLoop, IoLoopSender};
 
 pub use handler::{Handler, ClosureHandler};
 pub use error::{EventResult, EventError};
 
+use registration::Registration;
+
 mod ioloop;
 mod error;
 mod handler;
+mod registration;
+mod util;
 
-thread_local!(static EVENT_LOOP: RefCell<IoLoop> =
-              RefCell::new(IoLoop::new()));
-thread_local!(static EVENT_LOOP_SENDER: IoLoopSender =
-              EVENT_LOOP.with(move |event| event.borrow().channel()));
+thread_local! {
+    static EVENT_LOOP: RefCell<IoLoop> =
+        RefCell::new(IoLoop::new())
+}
+
+thread_local! {
+    static EVENT_LOOP_SENDER: IoLoopSender =
+        EVENT_LOOP.with(move |event| event.borrow().channel())
+}
 
 pub fn register<H: Handler>(handler: H) {
-    EVENT_LOOP_SENDER.with(move |events| events.send(Registration::new(box handler)));
+    EVENT_LOOP_SENDER.with(move |events| {
+        let _ = events.send(Registration::new(box handler));
+    });
 }
 
 pub fn timeout<F: FnOnce() + 'static>(callback: F, timeout: Duration) {
-    EVENT_LOOP_SENDER.with(move |events| events.send(Registration::timeout(callback, timeout)));
+    EVENT_LOOP_SENDER.with(move |events| {
+        let _ = events.send(Registration::timeout(callback, timeout));
+    });
 }
 
 pub fn next<F: FnOnce() + 'static>(callback: F) {
-    EVENT_LOOP_SENDER.with(move |events| events.send(Registration::next(callback)));
+    EVENT_LOOP_SENDER.with(move |events| {
+        let _ = events.send(Registration::next(callback));
+    });
 }
 
 pub fn start() {
