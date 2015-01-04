@@ -21,7 +21,7 @@ Hello World\r
 
 fn read_socket(sock: &mut TcpSocket, _: evt::ReadHint) -> bool {
     info!("Reading from a socket.");
-    match sock.read_slice(&mut [0, ..1024]) {
+    match sock.read_slice(&mut [0; 1024]) {
         Ok(_) => { true }
         Err(ref e) if e.is_eof() => false,
         Err(e) => {
