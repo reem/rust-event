@@ -1,5 +1,5 @@
 use std::time::duration::Duration;
-use std::thunk::Thunk;
+use std::thunk::Invoke;
 
 use mio::util::Slab;
 use mio::{EventLoop, EventLoopSender, Token, IoHandle, IoDesc, event};
@@ -7,7 +7,7 @@ use mio::Handler as MioHandler;
 
 use {EventResult, EventError, Handler};
 
-type MioEventLoop = EventLoop<Thunk, Registration>;
+type MioEventLoop = EventLoop<Box<Invoke + 'static>, Registration>;
 
 const MAX_LISTENERS: uint = 64 * 1024;
 
@@ -49,21 +49,27 @@ impl IoLoopSender {
 
 pub enum Registration {
     Handler(Box<Handler>),
-    Timeout(Thunk, Duration),
-    Next(Thunk)
+    Timeout(Box<Invoke + 'static>, Duration),
+    Next(Box<Invoke + 'static>)
 }
+
+// This is an *incorrect* implementation, in the sense that
+// sending a Registration can be incorrect. However, we
+// only send Registration and its contents around a single
+// thread so it is ok for us to fake Send to fool mio.
+unsafe impl Send for Registration {}
 
 impl Registration {
     pub fn new(handler: Box<Handler>) -> Registration {
         Registration::Handler(handler)
     }
 
-    pub fn timeout<F: FnOnce() + Send>(callback: F, timeout: Duration) -> Registration {
-        Registration::Timeout(Thunk::new(callback), timeout)
+    pub fn timeout<F: FnOnce() + 'static>(callback: F, timeout: Duration) -> Registration {
+        Registration::Timeout(box move |:_| { callback() }, timeout)
     }
 
-    pub fn next<F: FnOnce() + Send>(callback: F) -> Registration {
-        Registration::Next(Thunk::new(callback))
+    pub fn next<F: FnOnce() + 'static>(callback: F) -> Registration {
+        Registration::Next(box move |:_| { callback() })
     }
 }
 
@@ -98,7 +104,7 @@ impl IoHandler {
     }
 }
 
-impl MioHandler<Thunk, Registration> for IoHandler {
+impl MioHandler<Box<Invoke + 'static>, Registration> for IoHandler {
     fn readable(&mut self, events: &mut MioEventLoop, token: Token,
                 hint: event::ReadHint) {
         // If this was deregistered during writable.
@@ -158,7 +164,7 @@ impl MioHandler<Thunk, Registration> for IoHandler {
         }
     }
 
-    fn timeout(&mut self, _: &mut MioEventLoop, thunk: Thunk) {
+    fn timeout(&mut self, _: &mut MioEventLoop, thunk: Box<Invoke + 'static>) {
         thunk.invoke(())
     }
 }

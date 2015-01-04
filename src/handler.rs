@@ -1,6 +1,6 @@
 use mio::{IoDesc, IoHandle, event};
 
-pub trait Handler: Send {
+pub trait Handler: 'static {
     fn readable(&mut self, hint: event::ReadHint) -> bool;
     fn writable(&mut self) -> bool;
     fn desc(&self) -> &IoDesc;
