@@ -1,5 +1,7 @@
-#![feature(macro_rules, unboxed_closures)]
-// #![deny(missing_docs, warnings)]
+#![allow(unstable)]
+#![feature(unboxed_closures)]
+#![cfg_attr(test, deny(warnings))]
+// #![deny(missing_docs)]
 
 //! An Event-Loop for Rust.
 
@@ -32,7 +34,7 @@ thread_local! {
 
 pub fn register<H: Handler>(handler: H) {
     EVENT_LOOP_SENDER.with(move |events| {
-        let _ = events.send(Registration::new(box handler));
+        let _ = events.send(Registration::new(Box::new(handler)));
     });
 }
 

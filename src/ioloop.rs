@@ -12,7 +12,7 @@ use {EventResult, EventError, Handler};
 pub type IoLoopSender = EventLoopSender<Registration>;
 type MioEventLoop = EventLoop<Box<Invoke + 'static>, Registration>;
 
-const MAX_LISTENERS: uint = 64 * 1024;
+const MAX_LISTENERS: usize = 64 * 1024;
 
 pub struct IoLoop {
     events: MioEventLoop

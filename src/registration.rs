@@ -20,11 +20,11 @@ impl Registration {
     }
 
     pub fn timeout<F: FnOnce() + 'static>(callback: F, timeout: Duration) -> Registration {
-        Registration::Timeout(box move |:_| { callback() }, timeout)
+        Registration::Timeout(Box::new(move |:_| { callback() }), timeout)
     }
 
     pub fn next<F: FnOnce() + 'static>(callback: F) -> Registration {
-        Registration::Next(box move |:_| { callback() })
+        Registration::Next(Box::new(move |:_| { callback() }))
     }
 }
 
