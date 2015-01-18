@@ -1,10 +1,9 @@
-#![feature(unboxed_closures, phase)]
+#![feature(unboxed_closures)]
 
 extern crate event;
 extern crate mio;
 
-#[phase(plugin, link)]
-extern crate log;
+#[macro_use] extern crate log;
 
 use event::{run, register, ClosureHandler};
 
@@ -25,7 +24,7 @@ fn read_socket(sock: &mut TcpSocket, _: evt::ReadHint) -> bool {
         Ok(_) => { true }
         Err(ref e) if e.is_eof() => false,
         Err(e) => {
-            error!("Error reading: {}", e);
+            error!("Error reading: {:?}", e);
             false
         }
     }
@@ -37,7 +36,7 @@ fn write_socket(sock: &mut TcpSocket) -> bool {
         Ok(_) => { true }
         Err(ref e) if e.is_eof() => false,
         Err(e) => {
-            error!("Error writing: {}", e);
+            error!("Error writing: {:?}", e);
             false
         }
     }
@@ -67,7 +66,7 @@ fn main() {
     // Open socket
     let srv = TcpSocket::v4().unwrap()
         .bind(&addr).unwrap()
-        .listen(256u).unwrap();
+        .listen(256).unwrap();
 
     register(ClosureHandler {
         io: srv,
