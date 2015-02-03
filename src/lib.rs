@@ -1,5 +1,4 @@
-#![allow(unstable)]
-#![feature(unboxed_closures)]
+#![feature(unboxed_closures, core, std_misc)]
 #![cfg_attr(test, deny(warnings))]
 // #![deny(missing_docs)]
 
@@ -60,7 +59,9 @@ pub fn interval<F: FnMut() + Send>(callback: F, delay: Duration) {
         delay: Duration
     }
 
-    impl<F: FnMut() + Send()> FnOnce() for Interval<F> {
+    impl<F: FnMut() + Send()> FnOnce<()> for Interval<F> {
+        type Output = ();
+
         extern "rust-call" fn call_once(mut self, _: ()) {
             (self.callback)();
             let delay = self.delay.clone();

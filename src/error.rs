@@ -3,7 +3,7 @@ use std::error::FromError;
 
 pub type EventResult<T> = Result<T, EventError>;
 
-#[derive(Copy, Clone, Show, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum EventError {
     MioError(MioError)
 }
