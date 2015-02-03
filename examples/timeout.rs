@@ -1,4 +1,4 @@
-#![allow(unstable)]
+#![feature(std_misc)]
 extern crate event;
 
 use std::time::duration::Duration;
