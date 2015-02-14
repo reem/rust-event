@@ -9,13 +9,13 @@ use util::Desc;
 
 use {EventResult, EventError, Handler};
 
-pub type IoLoopSender = EventLoopSender<Registration>;
-type MioEventLoop = EventLoop<Box<Invoke + 'static>, Registration>;
+type MioEventLoop = EventLoop<Box<Invoke + 'static>, Box<Handler>>;
 
 const MAX_LISTENERS: usize = 64 * 1024;
 
 pub struct IoLoop {
-    events: MioEventLoop
+    events: MioEventLoop,
+    handler: IoHandler
 }
 
 impl IoLoop {
@@ -32,6 +32,24 @@ impl IoLoop {
                 Err(EventError::MioError(err.error))
             }
         }
+    }
+
+    pub fn register<H: Handler>(&mut self, handler: H) {
+        self.handler.register(&mut self.events, Box::new(handler));
+    }
+
+
+    pub fn timeout<F>(&mut self, callback: F, timeout: Duration)
+    where F: FnOnce() + 'static {
+        let _ = self.events.timeout(Box::new(callback), timeout);
+    }
+
+    pub fn next<F>(&mut self, callback: F) where F: FnOnce() + 'static {
+        self.events.channel().send(Box::new(callback))
+    }
+
+    pub fn shutdown(&mut self) {
+        self.events.shutdown()
     }
 
     pub fn channel(&self) -> IoLoopSender {
@@ -66,7 +84,7 @@ impl IoHandler {
     }
 }
 
-impl MioHandler<Box<Invoke + 'static>, Registration> for IoHandler {
+impl MioHandler<Box<Invoke + 'static>, Box<Handler>> for IoHandler {
     fn readable(&mut self, events: &mut MioEventLoop, token: Token,
                 hint: event::ReadHint) {
         if !self.slab.contains(token) { return }
@@ -88,20 +106,8 @@ impl MioHandler<Box<Invoke + 'static>, Registration> for IoHandler {
         }
     }
 
-    fn notify(&mut self, events: &mut MioEventLoop, reg: Registration) {
-        match reg {
-            Registration::Handler(handler) => {
-                self.register(events, handler);
-            },
-
-            Registration::Timeout(handler, timeout) => {
-                let _ = events.timeout(handler, timeout);
-            },
-
-            Registration::Next(thunk) => {
-                thunk.invoke(())
-            }
-        }
+    fn notify(&mut self, _: &mut MioEventLoop, thunk: Box<Invoke + 'static>) {
+        thunk.invoke(())
     }
 
     fn timeout(&mut self, _: &mut MioEventLoop, thunk: Box<Invoke + 'static>) {
