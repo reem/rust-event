@@ -53,14 +53,14 @@ fn accept(acceptor: &mut TcpAcceptor, _: evt::ReadHint) -> bool {
             write: write_socket,
             interest: Some(evt::READABLE | evt::WRITABLE),
             opt: Some(evt::PollOpt::edge())
-        });
+        }).unwrap();
     }
 
     true
 }
 
 fn main() {
-    let addr = SockAddr::parse("127.0.0.1:3000")
+    let addr = SockAddr::parse("127.0.0.1:3000").ok()
         .expect("could not parse InetAddr");
 
     // Open socket
@@ -71,10 +71,11 @@ fn main() {
     register(ClosureHandler {
         io: srv,
         read: accept,
-        write: move |&mut: _: &mut TcpAcceptor| true,
+        write: move |_: &mut TcpAcceptor| true,
         interest: Some(evt::READABLE),
         opt: Some(evt::PollOpt::edge())
-    });
-    run();
+    }).unwrap();
+
+    run().unwrap();
 }
 
