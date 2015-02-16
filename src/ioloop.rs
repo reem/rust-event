@@ -1,32 +1,40 @@
 use std::thunk::Invoke;
+use std::time::duration::Duration;
 
 use mio::util::Slab;
-use mio::{EventLoop, EventLoopSender, Token, IoDesc, event};
+use mio::{EventLoop, Token, IoDesc, event};
 use mio::Handler as MioHandler;
-
-use registration::Registration;
 use util::Desc;
 
-use {EventResult, EventError, Handler};
+use mutscoped::MutScoped;
 
-type MioEventLoop = EventLoop<Box<Invoke + 'static>, Box<Handler>>;
+use {EventResult, EventError, Handler, HANDLER};
+
+type MioEventLoop = EventLoop<Callback, Callback>;
+
+pub type Callback = IsSend<Box<Invoke + 'static>>;
+
+struct IsSend<T>(T);
+
+unsafe impl<T: 'static> Send for IsSend<T> {}
 
 const MAX_LISTENERS: usize = 64 * 1024;
 
 pub struct IoLoop {
     events: MioEventLoop,
-    handler: IoHandler
+    handler: Option<IoHandler>
 }
 
 impl IoLoop {
     pub fn new() -> IoLoop {
         IoLoop {
-            events: EventLoop::new().ok().expect("Failed to create mio event loop.")
+            events: EventLoop::new().ok().expect("Failed to create mio event loop."),
+            handler: Some(IoHandler::new())
         }
     }
 
     pub fn run(&mut self) -> EventResult<()> {
-        match self.events.run(IoHandler::new()) {
+        match self.events.run(self.handler.take().unwrap()) {
             Ok(..) => Ok(()),
             Err(err) => {
                 Err(EventError::MioError(err.error))
@@ -35,29 +43,35 @@ impl IoLoop {
     }
 
     pub fn register<H: Handler>(&mut self, handler: H) {
-        self.handler.register(&mut self.events, Box::new(handler));
+        match self.handler {
+            Some(ref mut iohandler) => {
+                iohandler.register(&mut self.events, Box::new(handler));
+            },
+
+            None => HANDLER.with(move |iohandler| {
+                unsafe { iohandler.borrow_mut(move |iohandler| {
+                    iohandler.register(&mut self.events, Box::new(handler));
+                }) }
+            })
+        }
     }
 
 
     pub fn timeout<F>(&mut self, callback: F, timeout: Duration)
     where F: FnOnce() + 'static {
-        let _ = self.events.timeout(Box::new(callback), timeout);
+        let _ = self.events.timeout(IsSend(Box::new(move |()| callback())), timeout);
     }
 
     pub fn next<F>(&mut self, callback: F) where F: FnOnce() + 'static {
-        self.events.channel().send(Box::new(callback))
+        let _ = self.events.channel().send(IsSend(Box::new(move |()| callback())));
     }
 
     pub fn shutdown(&mut self) {
         self.events.shutdown()
     }
-
-    pub fn channel(&self) -> IoLoopSender {
-        self.events.channel()
-    }
 }
 
-struct IoHandler {
+pub struct IoHandler {
     slab: Slab<Box<Handler>>,
 }
 
@@ -84,34 +98,38 @@ impl IoHandler {
     }
 }
 
-impl MioHandler<Box<Invoke + 'static>, Box<Handler>> for IoHandler {
+impl MioHandler<Callback, Callback> for IoHandler {
     fn readable(&mut self, events: &mut MioEventLoop, token: Token,
                 hint: event::ReadHint) {
-        if !self.slab.contains(token) { return }
+        HANDLER.set(&MutScoped::new(self), || {
+            if !self.slab.contains(token) { return }
 
-        if self.slab[token].readable(hint) {
-            self.reregister(events, token);
-        } else {
-            self.deregister(events, token);
-        }
+            if self.slab[token].readable(hint) {
+                self.reregister(events, token);
+            } else {
+                self.deregister(events, token);
+            }
+        })
     }
 
     fn writable(&mut self, events: &mut MioEventLoop, token: Token) {
-        if !self.slab.contains(token) { return }
+        HANDLER.set(&MutScoped::new(self), || {
+            if !self.slab.contains(token) { return }
 
-        if self.slab[token].writable() {
-            self.reregister(events, token);
-        } else {
-            self.deregister(events, token);
-        }
+            if self.slab[token].writable() {
+                self.reregister(events, token);
+            } else {
+                self.deregister(events, token);
+            }
+        })
     }
 
-    fn notify(&mut self, _: &mut MioEventLoop, thunk: Box<Invoke + 'static>) {
-        thunk.invoke(())
+    fn notify(&mut self, _: &mut MioEventLoop, thunk: IsSend<Box<Invoke + 'static>>) {
+        thunk.0.invoke(())
     }
 
-    fn timeout(&mut self, _: &mut MioEventLoop, thunk: Box<Invoke + 'static>) {
-        thunk.invoke(())
+    fn timeout(&mut self, _: &mut MioEventLoop, thunk: IsSend<Box<Invoke + 'static>>) {
+        thunk.0.invoke(())
     }
 }
 
