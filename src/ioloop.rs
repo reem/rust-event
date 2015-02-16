@@ -2,7 +2,7 @@ use std::thunk::Invoke;
 use std::time::duration::Duration;
 
 use mio::util::Slab;
-use mio::{EventLoop, Token, IoDesc, event};
+use mio::{MioError, EventLoop, Token, IoDesc, Timeout, event};
 use mio::Handler as MioHandler;
 use util::Desc;
 
@@ -42,28 +42,34 @@ impl IoLoop {
         }
     }
 
-    pub fn register<H: Handler>(&mut self, handler: H) {
+    pub fn register<H: Handler>(&mut self, handler: H) -> Result<(), EventError> {
         match self.handler {
             Some(ref mut iohandler) => {
-                iohandler.register(&mut self.events, Box::new(handler));
+                iohandler.register(&mut self.events, Box::new(handler))
             },
 
             None => HANDLER.with(move |iohandler| {
-                unsafe { iohandler.borrow_mut(move |iohandler| {
-                    iohandler.register(&mut self.events, Box::new(handler));
-                }) }
+                unsafe {
+                    iohandler.borrow_mut(move |iohandler| {
+                        iohandler.register(&mut self.events, Box::new(handler))
+                    })
+                }
             })
         }
     }
 
 
-    pub fn timeout<F>(&mut self, callback: F, timeout: Duration)
+    pub fn timeout<F>(&mut self, callback: F,
+                      timeout: Duration) -> EventResult<Timeout>
     where F: FnOnce() + 'static {
-        let _ = self.events.timeout(IsSend(Box::new(move |()| callback())), timeout);
+        Ok(try!(self.events.timeout(IsSend(Box::new(move |()| callback())), timeout)))
     }
 
-    pub fn next<F>(&mut self, callback: F) where F: FnOnce() + 'static {
-        let _ = self.events.channel().send(IsSend(Box::new(move |()| callback())));
+    pub fn next<F>(&mut self, callback: F) -> Result<(), ()>
+    where F: FnOnce() + 'static {
+        self.events.channel()
+            .send(IsSend(Box::new(move |()| callback())))
+            .map_err(|_| ())
     }
 
     pub fn shutdown(&mut self) {
@@ -82,10 +88,11 @@ impl IoHandler {
         }
     }
 
-    fn register(&mut self, events: &mut MioEventLoop, handler: Box<Handler>) {
+    fn register(&mut self, events: &mut MioEventLoop,
+                handler: Box<Handler>) -> Result<(), EventError> {
         let token = self.slab.insert(handler)
             .ok().expect("More than MAX_LISTENERS events registered.");
-        register(events, &mut *self.slab[token], token);
+        Ok(try!(register(events, &mut *self.slab[token], token)))
     }
 
     fn reregister(&mut self, events: &mut MioEventLoop, token: Token) {
@@ -133,13 +140,14 @@ impl MioHandler<Callback, Callback> for IoHandler {
     }
 }
 
-fn register(events: &mut MioEventLoop, handler: &mut Handler, token: Token) {
-    let _ = events.register_opt(
+fn register(events: &mut MioEventLoop,
+            handler: &mut Handler, token: Token) -> Result<(), MioError> {
+    events.register_opt(
         &Desc::new(handler.desc()),
         token,
         handler.interest().unwrap_or(event::READABLE),
         handler.opt().unwrap_or(event::LEVEL)
-    );
+    )
 }
 
 fn reregister(events: &mut MioEventLoop, handler: &mut Handler, token: Token) {

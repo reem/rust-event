@@ -12,9 +12,11 @@ extern crate log;
 
 use std::cell::RefCell;
 use std::time::duration::Duration;
+
 use ioloop::{IoLoop, IoHandler};
 use mutscoped::MutScoped;
 
+pub use mio::Timeout;
 pub use handler::{Handler, ClosureHandler};
 pub use error::{EventResult, EventError};
 
@@ -33,18 +35,19 @@ scoped_thread_local!(static EVENT_LOOP_FAST: MutScoped<IoLoop>);
 scoped_thread_local!(static HANDLER: MutScoped<IoHandler>);
 
 /// Register interest in an io descriptor.
-pub fn register<H: Handler>(handler: H) {
-    apply_events(move |events| events.register(handler));
+pub fn register<H: Handler>(handler: H) -> EventResult<()> {
+    apply_events(move |events| events.register(handler))
 }
 
 /// Set a callback to be called soon after a certain timeout.
-pub fn timeout<F: FnOnce() + 'static>(callback: F, timeout: Duration) {
-    apply_events(move |events| events.timeout(callback, timeout));
+pub fn timeout<F>(callback: F, timeout: Duration) -> EventResult<Timeout>
+where F: FnOnce() + 'static {
+    apply_events(move |events| events.timeout(callback, timeout))
 }
 
 /// File a callback to be called on the next run of the event loop.
-pub fn next<F: FnOnce() + 'static>(callback: F) {
-    apply_events(move |events| events.next(callback));
+pub fn next<F: FnOnce() + 'static>(callback: F) -> Result<(), ()> {
+    apply_events(move |events| events.next(callback))
 }
 
 pub fn interval<F: FnMut() + Send>(callback: F, delay: Duration) {
@@ -59,11 +62,11 @@ pub fn interval<F: FnMut() + Send>(callback: F, delay: Duration) {
         extern "rust-call" fn call_once(mut self, _: ()) {
             (self.callback)();
             let delay = self.delay.clone();
-            timeout(self, delay);
+            timeout(self, delay).unwrap();
         }
     }
 
-    timeout(Interval { callback: callback, delay: delay.clone() }, delay);
+    timeout(Interval { callback: callback, delay: delay.clone() }, delay).unwrap();
 }
 
 /// Starts the event loop on this thread.
@@ -104,8 +107,8 @@ pub fn shutdown() {
     }
 }
 
-fn apply_events<A>(action: A)
-where A: FnOnce(&mut IoLoop) {
+fn apply_events<A, R>(action: A) -> R
+where A: FnOnce(&mut IoLoop) -> R {
     if EVENT_LOOP_FAST.is_set() {
         EVENT_LOOP_FAST.with(move |event| unsafe { event.borrow_mut(action) })
     } else {
