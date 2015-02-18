@@ -2,7 +2,7 @@ use std::thunk::Invoke;
 use std::time::duration::Duration;
 
 use mio::util::Slab;
-use mio::{MioError, EventLoop, Token, IoDesc, Timeout, event};
+use mio::{MioError, EventLoop, Token, IoDesc, Timeout, ReadHint, PollOpt, Interest};
 use mio::Handler as MioHandler;
 use util::Desc;
 
@@ -107,7 +107,7 @@ impl IoHandler {
 
 impl MioHandler<Callback, Callback> for IoHandler {
     fn readable(&mut self, events: &mut MioEventLoop, token: Token,
-                hint: event::ReadHint) {
+                hint: ReadHint) {
         HANDLER.set(&MutScoped::new(self), || {
             if !self.slab.contains(token) { return }
 
@@ -145,8 +145,8 @@ fn register(events: &mut MioEventLoop,
     events.register_opt(
         &Desc::new(handler.desc()),
         token,
-        handler.interest().unwrap_or(event::READABLE),
-        handler.opt().unwrap_or(event::LEVEL)
+        handler.interest().unwrap_or(Interest::readable()),
+        handler.opt().unwrap_or(PollOpt::level())
     )
 }
 
@@ -154,8 +154,8 @@ fn reregister(events: &mut MioEventLoop, handler: &mut Handler, token: Token) {
     let _ = events.reregister(
         &Desc::new(handler.desc()),
         token,
-        handler.interest().unwrap_or(event::READABLE),
-        handler.opt().unwrap_or(event::LEVEL)
+        handler.interest().unwrap_or(Interest::readable()),
+        handler.opt().unwrap_or(PollOpt::level())
     );
 }
 
