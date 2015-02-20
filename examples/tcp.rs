@@ -9,8 +9,7 @@ use event::{run, register, ClosureHandler};
 
 use mio::net::SockAddr;
 use mio::net::tcp::{TcpSocket, TcpAcceptor};
-use mio::{IoWriter, IoAcceptor};
-use mio::event as evt;
+use mio::{IoWriter, IoAcceptor, PollOpt, Interest, ReadHint};
 
 const RESPONSE: &'static str = "HTTP/1.1 200 OK\r
 Content-Length: 14\r
@@ -18,7 +17,7 @@ Content-Length: 14\r
 Hello World\r
 \r";
 
-fn accept(acceptor: &mut TcpAcceptor, _: evt::ReadHint) -> bool {
+fn accept(acceptor: &mut TcpAcceptor, _: ReadHint) -> bool {
     let sock = acceptor.accept().unwrap();
 
     if !sock.would_block() {
@@ -33,8 +32,8 @@ fn accept(acceptor: &mut TcpAcceptor, _: evt::ReadHint) -> bool {
                     }
                 }
             },
-            interest: Some(evt::WRITABLE),
-            opt: Some(evt::PollOpt::level())
+            interest: Some(Interest::writable()),
+            opt: Some(PollOpt::edge() | PollOpt::oneshot())
         }).unwrap();
     }
 
@@ -54,8 +53,8 @@ fn main() {
         io: srv,
         read: accept,
         write: move |_: &mut TcpAcceptor| true,
-        interest: Some(evt::READABLE),
-        opt: Some(evt::PollOpt::edge())
+        interest: Some(Interest::readable()),
+        opt: Some(PollOpt::edge() | PollOpt::oneshot())
     }).unwrap();
 
     run().unwrap();
