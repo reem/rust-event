@@ -17,7 +17,7 @@ pub struct ClosureHandler<I, R, W> {
     pub opt: Option<PollOpt>
 }
 
-impl<I, R, W> Handler for ClosureHandler<I, R, W>
+impl<I: 'static, R: 'static, W: 'static> Handler for ClosureHandler<I, R, W>
 where I: Send + IoHandle,
       R: Send + FnMut(&mut I, ReadHint) -> bool,
       W: Send + FnMut(&mut I) -> bool {

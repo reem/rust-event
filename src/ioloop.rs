@@ -34,10 +34,10 @@ impl IoLoop {
     }
 
     pub fn run(&mut self) -> EventResult<()> {
-        match self.events.run(self.handler.take().unwrap()) {
+        match self.events.run(&mut self.handler.take().unwrap()) {
             Ok(..) => Ok(()),
             Err(err) => {
-                Err(EventError::MioError(err.error))
+                Err(EventError::MioError(err))
             }
         }
     }
