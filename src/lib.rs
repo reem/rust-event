@@ -50,13 +50,13 @@ pub fn next<F: FnOnce() + 'static>(callback: F) -> Result<(), ()> {
     apply_events(move |events| events.next(callback))
 }
 
-pub fn interval<F: FnMut() + Send>(callback: F, delay: Duration) {
+pub fn interval<F: 'static + FnMut() + Send>(callback: F, delay: Duration) {
     struct Interval<F> {
         callback: F,
         delay: Duration
     }
 
-    impl<F: FnMut() + Send()> FnOnce<()> for Interval<F> {
+    impl<F: 'static + FnMut() + Send()> FnOnce<()> for Interval<F> {
         type Output = ();
 
         extern "rust-call" fn call_once(mut self, _: ()) {
